@@ -1,6 +1,7 @@
 # 🛍️ Retail Pricing Dashboard (Hệ thống Hỗ trợ Ra Quyết định - DSS)
 
 Đây là một ứng dụng Web App thông minh dựa trên AI/Machine Learning để phân tích dữ liệu bán lẻ, dự báo nhu cầu khách hàng và **tối ưu hóa chiến lược giá & khuyến mãi** cho hệ thống chuỗi cửa hàng. Ứng dụng giúp các nhà quản lý (C-Level/Manager) đưa ra quyết định dựa trên dữ liệu (Data-driven) nhằm tối đa hóa lợi nhuận hoặc doanh thu.
+Link deploy: https://retailforecastingwebapp.streamlit.app/
 
 ## ✨ Các Tính Năng Chính
 
