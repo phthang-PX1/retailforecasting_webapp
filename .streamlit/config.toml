@@ -1,0 +1,15 @@
+[theme]
+# Màu chính (Primary color) - Orange theo guideline
+primaryColor = "#FF6B3D"
+
+# Màu nền chính (Main Content Area)
+backgroundColor = "#F7F7F7"
+
+# Màu nền Sidebar
+secondaryBackgroundColor = "#F1F1F1"
+
+# Màu chữ chính
+textColor = "#111827"
+
+# Font chữ
+font = "Inter"
