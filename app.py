@@ -84,6 +84,39 @@ df['revenue'] = df['quantity'] * df['net_price']
 df['profit'] = df['quantity'] * (df['net_price'] - df['cost_price'])
 df['pred_revenue'] = df['pred_qty'] * df['net_price']
 
+def generate_forecast_for_df(df_trend, model, feature_cols, weeks_to_predict=2):
+    last_week = df_trend['week'].max()
+    latest_data = df_trend[df_trend['week'] == last_week].copy()
+    
+    future_dfs = []
+    curr_data = latest_data.copy()
+    
+    for i in range(1, weeks_to_predict + 1):
+        next_week = last_week + pd.Timedelta(days=7*i)
+        next_data = curr_data.copy()
+        
+        next_data['week'] = next_week
+        next_data['weekofyear'] = next_week.isocalendar().week
+        next_data['month'] = next_week.month
+        next_data['quarter'] = next_week.quarter
+        
+        next_data['lag_4'] = next_data['lag_2']
+        next_data['lag_2'] = next_data['lag_1']
+        next_data['lag_1'] = curr_data['pred_qty'] if 'pred_qty' in curr_data else curr_data['quantity']
+        
+        next_data['pred_qty'] = predict_sales(model, next_data, feature_cols)
+        next_data['pred_revenue'] = next_data['pred_qty'] * next_data['net_price']
+        
+        next_data['revenue'] = np.nan
+        next_data['quantity'] = np.nan
+        
+        future_dfs.append(next_data)
+        curr_data = next_data
+        
+    if future_dfs:
+        return pd.concat([df_trend] + future_dfs, ignore_index=True)
+    return df_trend
+
 # 2. thanh điều hướng
 st.sidebar.title("Menu điều hướng")
 st.sidebar.markdown("Hệ thống hỗ trợ ra quyết định")
@@ -126,7 +159,7 @@ if page == "1. Tổng quan kinh doanh":
     # phân tích xu hướng (nằm trong card)
     with st.container(border=True):
         st.markdown("### Phân tích xu hướng doanh thu")
-        trend_level = st.radio("Cấp độ phân tích:", ["Toàn hệ thống", "Theo cửa hàng", "Theo sản phẩm"], horizontal=True)
+        trend_level = st.radio("Cấp độ phân tích:", ["Toàn hệ thống", "Theo cửa hàng", "Theo sản phẩm", "Theo cửa hàng và sản phẩm"], horizontal=True)
         
         df_trend = df.copy()
         title_suffix = "toàn chuỗi"
@@ -139,8 +172,17 @@ if page == "1. Tổng quan kinh doanh":
             sel_trend_sku = st.selectbox("Chọn sản phẩm (SKU):", sorted(df['sku_id'].unique()))
             df_trend = df_trend[df_trend['sku_id'] == sel_trend_sku]
             title_suffix = f"sản phẩm {sel_trend_sku}"
+        elif trend_level == "Theo cửa hàng và sản phẩm":
+            c1, c2 = st.columns(2)
+            sel_trend_store = c1.selectbox("Chọn cửa hàng:", sorted(df['store_id'].unique()))
+            valid_skus = sorted(df[df['store_id'] == sel_trend_store]['sku_id'].unique())
+            sel_trend_sku = c2.selectbox("Chọn sản phẩm (SKU):", valid_skus)
+            df_trend = df_trend[(df_trend['store_id'] == sel_trend_store) & (df_trend['sku_id'] == sel_trend_sku)]
+            title_suffix = f"cửa hàng {sel_trend_store} - SKU {sel_trend_sku}"
             
-        st.plotly_chart(charts.plot_sales_trend(df_trend, title_suffix), use_container_width=True)
+        df_trend_forecast = generate_forecast_for_df(df_trend, model, feature_cols, weeks_to_predict=2)
+            
+        st.plotly_chart(charts.plot_sales_trend(df_trend_forecast, title_suffix), use_container_width=True)
     
     st.write("")
     
@@ -151,7 +193,7 @@ if page == "1. Tổng quan kinh doanh":
             st.plotly_chart(charts.plot_seasonality_dual(df), use_container_width=True)
     with col_chart2:
         with st.container(border=True):
-            st.plotly_chart(charts.plot_top_stores_donut(df), use_container_width=True)
+            st.plotly_chart(charts.plot_top_stores_bar(df), use_container_width=True)
 
 elif page == "2. Phân tích dữ liệu":
     st.title("Phân tích bán hàng và nhu cầu")
@@ -236,16 +278,40 @@ elif page == "3. Mô phỏng kịch bản":
     st.title("Mô phỏng kịch bản giảm giá")
     st.markdown("Giả lập thay đổi sức mua và lợi nhuận khi điều chỉnh mức giảm giá cho từng sản phẩm.")
     
-    col_sel1, col_sel2 = st.columns(2)
+    col_sel1, col_sel2, col_sel3 = st.columns(3)
     sel_store = col_sel1.selectbox("Chọn cửa hàng", sorted(df['store_id'].unique()))
     sel_sku = col_sel2.selectbox("Chọn sản phẩm", sorted(df[df['store_id'] == sel_store]['sku_id'].unique()))
     
+    store_sku_df = df[(df['store_id'] == sel_store) & (df['sku_id'] == sel_sku)]
+    available_weeks = sorted(store_sku_df['week'].unique(), reverse=True)
+    
+    # Định dạng hiển thị dropdown
+    time_options = ["Tuần tiếp theo (Dự báo)"] + [pd.to_datetime(w).strftime('%d/%m/%Y') for w in available_weeks]
+    
+    target_week_str = col_sel3.selectbox("Chọn thời điểm mô phỏng", time_options)
+    
+    if target_week_str == "Tuần tiếp theo (Dự báo)":
+        target_week_val = "Next Week"
+    else:
+        # Chuyển ngược từ DD/MM/YYYY về ngảy gốc tương ứng
+        selected_idx = time_options.index(target_week_str) - 1
+        target_week_val = available_weeks[selected_idx]
+    
     if st.button("Chạy kịch bản mô phỏng", type="primary"):
-        res_df = simulate_what_if(sel_store, sel_sku, df, model, feature_cols)
+        res_df = simulate_what_if(sel_store, sel_sku, df, model, feature_cols, target_week=target_week_val)
         
         if res_df is not None:
-            latest_data = df[(df['store_id'] == sel_store) & (df['sku_id'] == sel_sku)].sort_values('week').tail(1)
-            curr_discount, curr_profit, curr_qty = latest_data['discount_pct'].values[0], latest_data['profit'].values[0], latest_data['quantity'].values[0]
+            if target_week_val == "Next Week":
+                latest_data = store_sku_df.sort_values('week').tail(1).copy()
+                global_max_date = df['week'].max()
+                sim_date_obj = pd.to_datetime(global_max_date) + pd.Timedelta(days=7)
+                sim_date_str = sim_date_obj.strftime('%d/%m/%Y') + " (Dự báo)"
+                curr_discount, curr_profit, curr_qty = latest_data['discount_pct'].values[0], latest_data['profit'].values[0], latest_data['quantity'].values[0]
+            else:
+                latest_data = store_sku_df[store_sku_df['week'] == target_week_val].copy()
+                sim_date_raw = target_week_val
+                sim_date_str = pd.to_datetime(sim_date_raw).strftime('%d/%m/%Y') + " (Lịch sử)"
+                curr_discount, curr_profit, curr_qty = latest_data['discount_pct'].values[0], latest_data['profit'].values[0], latest_data['quantity'].values[0]
             
             best_idx = res_df['expected_profit'].idxmax()
             best_discount, best_profit, best_qty = res_df.loc[best_idx, 'discount_pct'], res_df.loc[best_idx, 'expected_profit'], res_df.loc[best_idx, 'pred_qty']
@@ -263,7 +329,7 @@ elif page == "3. Mô phỏng kịch bản":
             c3.metric("Mức giảm giá đề xuất", f"{best_discount:.0f}%", f"{(best_discount - curr_discount):.0f}% so với hiện tại", delta_color="inverse")
             
             st.divider()
-            st.plotly_chart(charts.plot_whatif_curves(res_df, best_discount, best_profit), use_container_width=True)
+            st.plotly_chart(charts.plot_whatif_curves(res_df, best_discount, best_profit, sim_date=sim_date_str), use_container_width=True)
             
             with st.expander("Xem chi tiết các kịch bản giá"):
                 st.dataframe(res_df.style.format({

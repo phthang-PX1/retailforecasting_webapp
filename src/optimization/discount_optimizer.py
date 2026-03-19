@@ -2,11 +2,30 @@ import pandas as pd
 import numpy as np
 from src.models.predict import predict_sales
 
-def simulate_what_if(store_id, sku_id, df_features, model, feature_cols):
+def simulate_what_if(store_id, sku_id, df_features, model, feature_cols, target_week="Next Week"):
     """Mô phỏng kịch bản What-If cho 1 cặp Store-SKU."""
-    latest_data = df_features[(df_features['store_id'] == store_id) & 
-                              (df_features['sku_id'] == sku_id)].sort_values('week').tail(1).copy()
-    if latest_data.empty: return None
+    store_sku_data = df_features[(df_features['store_id'] == store_id) & 
+                                 (df_features['sku_id'] == sku_id)].sort_values('week')
+    if store_sku_data.empty: return None
+
+    if target_week == "Next Week":
+        latest_data = store_sku_data.tail(1).copy()
+        target_month = None
+        target_weekofyear = None
+        target_quarter = None
+        
+        if 'week' in df_features.columns:
+            global_latest_week = pd.to_datetime(df_features['week'].max())
+            next_week_date = global_latest_week + pd.Timedelta(days=7)
+            target_month = next_week_date.month
+            target_weekofyear = next_week_date.isocalendar().week
+            target_quarter = next_week_date.quarter
+    else:
+        latest_data = store_sku_data[store_sku_data['week'] == target_week].copy()
+        target_month = None
+        target_weekofyear = None
+        target_quarter = None
+        if latest_data.empty: return None
 
     old_net_price = latest_data['net_price'].values[0]
     old_discount = latest_data['discount_pct'].values[0]
@@ -16,6 +35,13 @@ def simulate_what_if(store_id, sku_id, df_features, model, feature_cols):
     test_discounts = [0, 5, 10, 15, 20, 25, 30, 40, 50]
     sim_df = pd.concat([latest_data]*len(test_discounts), ignore_index=True)
     sim_df['discount_pct'] = test_discounts
+
+    if target_month is not None:
+        sim_df['month'] = target_month
+    if target_weekofyear is not None:
+        sim_df['weekofyear'] = target_weekofyear
+    if target_quarter is not None:
+        sim_df['quarter'] = target_quarter
 
     sim_df['pred_qty'] = predict_sales(model, sim_df, feature_cols)
     sim_df['sim_net_price'] = base_price * (1 - sim_df['discount_pct'] / 100.0)

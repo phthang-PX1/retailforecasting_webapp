@@ -9,6 +9,11 @@ import pandas as pd
 def plot_sales_trend(df, title_suffix="toàn chuỗi"):
     trend = df.groupby('week').agg({'revenue': 'sum', 'pred_revenue': 'sum'}).reset_index()
     
+    # Kỹ thuật ẩn null ở tương lai để không bị vẽ chuỗi 0
+    if 'revenue' in df.columns:
+        last_actual_week = df.dropna(subset=['revenue'])['week'].max()
+        trend.loc[trend['week'] > last_actual_week, 'revenue'] = np.nan
+        
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=trend['week'], y=trend['revenue'], 
@@ -24,13 +29,28 @@ def plot_sales_trend(df, title_suffix="toàn chuỗi"):
     fig.update_layout(
         template="plotly_white",
         title=f"Xu hướng doanh thu thực tế và dự báo ({title_suffix})",
-        xaxis_title="Thời gian (tuần)",
+        xaxis_title="Thời gian",
         yaxis_title="Doanh thu ($)",
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=0, r=0, t=50, b=0),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
+    )
+    
+    fig.update_xaxes(
+        rangeslider_visible=True,
+        rangeselector=dict(
+            buttons=list([
+                dict(count=1, label="1m", step="month", stepmode="backward"),
+                dict(count=3, label="3m", step="month", stepmode="backward"),
+                dict(count=6, label="6m", step="month", stepmode="backward"),
+                dict(count=1, label="1y", step="year", stepmode="backward"),
+                dict(step="all", label="Tất cả")
+            ])
+        ),
+        dtick="M1",
+        tickformat="%b\n%Y"
     )
     return fig
 
@@ -66,23 +86,31 @@ def plot_seasonality_dual(df):
     )
     return fig
 
-def plot_top_stores_donut(df):
+def plot_top_stores_bar(df):
     store_rev = df.groupby('store_id')['revenue'].sum().reset_index().sort_values('revenue', ascending=False)
     top_5 = store_rev.head(5).copy()
     top_5['store_name'] = 'Cửa hàng ' + top_5['store_id'].astype(str)
+    top_5 = top_5.sort_values('revenue', ascending=True) # Sort cho biểu đồ ngang
     
-    others_rev = store_rev.iloc[5:]['revenue'].sum()
-    if others_rev > 0:
-        others_df = pd.DataFrame([{'store_id': 'Others', 'revenue': others_rev, 'store_name': 'Các cửa hàng khác'}])
-        top_5 = pd.concat([top_5, others_df], ignore_index=True)
-        
-    fig = px.pie(
-        top_5, values='revenue', names='store_name', hole=0.5, 
-        title="Tỷ trọng doanh thu top 5 cửa hàng",
-        color_discrete_sequence=['#FF6B3D', '#FDBA74', '#FCA5A5', '#93C5FD', '#D1D5DB', '#F3F4F6']
+    fig = px.bar(
+        top_5, x='revenue', y='store_name', orientation='h',
+        title="Top 5 cửa hàng doanh thu cao nhất",
+        text_auto='.3s',
+        color='revenue',
+        color_continuous_scale=['#FDBA74', '#FF6B3D']
     )
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    fig.update_layout(template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', showlegend=False)
+    fig.update_traces(textposition='outside', textfont_size=12)
+    fig.update_layout(
+        template="plotly_white", 
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False,
+        coloraxis_showscale=False,
+        xaxis_title="Doanh thu ($)",
+        yaxis_title="",
+        xaxis=dict(showgrid=True, gridcolor='#F3F4F6'),
+        margin=dict(l=0, r=40, t=50, b=0)
+    )
     return fig
 
 # màn hình 2: analytics
@@ -137,7 +165,11 @@ def plot_store_quadrants(df):
     return fig
 
 # màn hình 3 & 4: what-if & optimization
-def plot_whatif_curves(res_df, best_discount, best_profit):
+def plot_whatif_curves(res_df, best_discount, best_profit, sim_date=None):
+    title_text = "Đường cong phản ứng lợi nhuận và sức mua"
+    if sim_date:
+        title_text += f" (Giả lập tại thời điểm tuần {sim_date})"
+        
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=res_df['discount_pct'], y=res_df['pred_qty'], 
@@ -156,7 +188,7 @@ def plot_whatif_curves(res_df, best_discount, best_profit):
     
     fig.update_layout(
         template="plotly_white",
-        title="Đường cong phản ứng lợi nhuận và sức mua", 
+        title=title_text, 
         xaxis=dict(title="Mức giảm giá (%)", showgrid=True, gridcolor='#F3F4F6'),
         yaxis=dict(title=dict(text="Lợi nhuận ($)", font=dict(color="#22C55E")), tickfont=dict(color="#22C55E"), showgrid=True, gridcolor='#F3F4F6'),
         yaxis2=dict(title=dict(text="Số lượng", font=dict(color="#9CA3AF")), tickfont=dict(color="#9CA3AF"), overlaying="y", side="right"),
